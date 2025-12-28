@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Azota Clone Pro - Validation Update</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        .hidden { display: none !important; }
+        .active-tab { border-bottom: 3px solid #2563eb; color: #2563eb; font-weight: bold; }
+        
+        /* Animation */
+        .animate-fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-pop-in { animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        @keyframes popIn { 0% { opacity: 0; transform: scale(0.9); } 100% { opacity: 1; transform: scale(1); } }
+
+        /* General UI */
+        .question-item { border-radius: 12px; padding: 1.5rem; border: 1px solid #e5e7eb; background: white; margin-bottom: 1.5rem; box-shadow: 0 2px 5px rgba(0,0,0,0.02); }
+        
+        /* MCQ Styles */
+        .ans-label { cursor: pointer; display: flex; align-items: center; padding: 1rem; border-radius: 8px; border: 1px solid #f3f4f6; margin-top: 0.5rem; transition: all 0.2s; }
+        .ans-label:hover { background-color: #eff6ff; border-color: #bfdbfe; }
+        input[type="radio"]:checked + span { font-weight: bold; color: #2563eb; }
+
+        /* --- True/False Styles (Doing & Result) --- */
+        .tf-grid-doing { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; padding: 12px; border-bottom: 1px solid #f1f5f9; }
+        .tf-grid-doing:last-child { border-bottom: none; }
+        
+        .tf-radio-group { display: flex; gap: 4px; background: #f8fafc; padding: 4px; border-radius: 8px; }
+        .tf-radio-opt { cursor: pointer; padding: 6px 16px; border-radius: 6px; font-size: 13px; font-weight: bold; transition: all 0.2s; border: 1px solid transparent; display: flex; align-items: center; gap: 4px; }
+        
+        .tf-radio-hidden { display: none; }
+        .tf-radio-opt.opt-true:hover { background: #d1fae5; color: #065f46; }
+        .tf-radio-hidden:checked + .tf-radio-opt.opt-true { background: #059669; color: white; border-color: #047857; box-shadow: 0 2px 4px rgba(5,150,105,0.3); }
+        
+        .tf-radio-opt.opt-false:hover { background: #fee2e2; color: #991b1b; }
+        .tf-radio-hidden:checked + .tf-radio-opt.opt-false { background: #dc2626; color: white; border-color: #b91c1c; box-shadow: 0 2px 4px rgba(220,38,38,0.3); }
+
+        /* Result Table T/F */
+        .tf-res-row { display: grid; grid-template-columns: 50px 1fr 100px; gap: 8px; padding: 10px; border-bottom: 1px solid #f1f5f9; font-size: 14px; align-items: center; }
+        @media (max-width: 640px) {
+            .tf-res-row { grid-template-columns: 30px 1fr; grid-template-rows: auto auto; }
+            .tf-res-status { grid-column: 1 / -1; display: flex; justify-content: space-between; background: #f8fafc; padding: 6px; rounded: 6px; margin-top: 4px; }
+        }
+
+        /* Editor */
+        .editor-container { position: relative; width: 100%; height: 400px; border: 2px solid #e2e8f0; border-radius: 0.75rem; overflow: hidden; background: white; }
+        .editor-backdrop, .editor-textarea { position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; padding: 1rem; font-family: ui-monospace, monospace; font-size: 0.875rem; line-height: 1.5; white-space: pre-wrap; overflow-y: auto; border: none; outline: none; margin: 0; }
+        .editor-backdrop { z-index: 1; color: transparent; pointer-events: none; background-color: #fff; }
+        .editor-textarea { z-index: 2; color: #0f172a; background: transparent; resize: none; }
+        .hl-error { background-color: rgba(254, 202, 202, 0.5); width: 100%; display: inline-block; } 
+        .hl-header { background-color: rgba(219, 234, 254, 0.4); width: 100%; display: inline-block; } 
+        
+        .noselect { user-select: none; -webkit-user-select: none; }
+        
+        /* Preview Styles */
+        .tf-option-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid #f1f5f9; }
+        .tf-btn { cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 13px; padding: 4px 8px; border-radius: 20px; border: 1px solid transparent; transition: all 0.2s; }
+        .tf-btn.true-btn.active { background: #059669; color: white; }
+        .tf-btn.false-btn.active { background: #dc2626; color: white; }
+
+        /* Dynamic Scoring Inputs Improvements */
+        .tf-dynamic-input {
+            transition: all 0.2s ease;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);
+        }
+        .tf-dynamic-input:focus {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);
+        }
+        .input-error {
+            background-color: #fef2f2 !important;
+            border-color: #fca5a5 !important;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen font-sans text-slate-900 noselect" oncontextmenu="return false;">
+
+    <nav class="bg-white shadow-sm sticky top-0 z-40">
+        <div class="max-w-6xl mx-auto flex justify-between items-center px-4 md:px-6 py-4">
+            <div class="flex items-center space-x-2 cursor-pointer" onclick="switchTab('list')">
+                <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">A</div>
+                <h1 class="text-lg md:text-xl font-black text-slate-800 tracking-tight">AZOTA <span class="text-blue-600">PRO</span></h1>
+            </div>
+            <div class="flex space-x-4 md:space-x-8 text-xs md:text-sm font-medium">
+                <button onclick="switchTab('create')" id="btn-create" class="py-1 transition-all">TẠO / SỬA ĐỀ</button>
+                <button onclick="switchTab('list')" id="btn-list" class="py-1 transition-all active-tab">DANH SÁCH</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-5xl mx-auto p-4 md:p-6 pb-20">
+        
+        <section id="section-create" class="hidden animate-fade-in">
+            <div id="create-step-1">
+                <div class="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-xl md:text-2xl font-bold" id="create-header-title">Thiết lập bài thi mới</h2>
+                        <button onclick="resetCreateForm()" class="text-sm text-slate-400 hover:text-red-500 font-bold">Làm mới</button>
+                    </div>
+                    
+                    <div class="mb-6">
+                        <label class="block text-sm font-bold mb-2">Tên bài thi:</label>
+                        <input type="text" id="quiz-title" class="w-full border-2 border-slate-100 p-3 rounded-xl focus:border-blue-500 outline-none" placeholder="Ví dụ: Kiểm tra 15 phút...">
+                    </div>
+
+                    <div class="mb-2 flex justify-between items-end">
+                        <label class="block text-sm font-bold">Nội dung câu hỏi:</label>
+                        <div class="text-xs text-slate-500 flex gap-3">
+                            <span class="flex items-center"><span class="w-3 h-3 bg-red-200 mr-1 rounded"></span> Dòng lỗi</span>
+                            <span class="flex items-center"><span class="w-3 h-3 bg-blue-100 mr-1 rounded"></span> Tiêu đề</span>
+                        </div>
+                    </div>
+                    
+                    <div class="editor-container">
+                        <div id="editor-backdrop" class="editor-backdrop"></div>
+                        <textarea id="quiz-content" class="editor-textarea" spellcheck="false" 
+                            oninput="handleInput()" onscroll="syncScroll()"
+                            placeholder="#Phần 1: Trắc nghiệm&#10;Câu 1:&#10;A. reply; B. qualify; C. apply; *D. hobby&#10;&#10;§Câu 2: Dạng đúng sai (thêm dấu § trước chữ Câu)&#10;*A. Ý này đúng (thêm dấu *)&#10;B. Ý này sai (không thêm dấu)&#10;&#10;$Câu 3: Dạng trả lời ngắn (thêm dấu $ trước chữ Câu)&#10;A. 15"></textarea>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-2 italic">* Mẹo: Dùng §Câu... cho Đúng/Sai. Dùng $Câu... cho Trả lời ngắn. Dùng * trước đáp án đúng.</p>
+                </div>
+
+                <div id="preview-area" class="mt-8">
+                    <div class="bg-white p-4 md:p-8 rounded-2xl shadow-sm border border-slate-200 border-t-4 border-t-blue-500">
+                        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                            <h3 class="text-xl font-black text-slate-800">XÁC NHẬN CẤU TRÚC</h3>
+                            <span id="preview-status" class="bg-slate-100 text-slate-500 px-3 py-1 rounded-full text-xs font-bold">
+                                Đang chờ dữ liệu...
+                            </span>
+                        </div>
+                        <div id="preview-list" class="space-y-4 min-h-[100px]"></div>
+                        
+                        <button onclick="proceedToSettings()" id="btn-continue" class="hidden mt-8 w-full bg-blue-600 text-white font-bold py-4 rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-100 transition-transform hover:scale-[1.01]">
+                            TIẾP TỤC ĐẾN CẤU HÌNH ➜
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="create-step-2" class="hidden">
+                <div class="bg-white p-6 md:p-10 rounded-2xl shadow-lg border border-slate-200 max-w-4xl mx-auto">
+                    <button onclick="backToEditor()" class="mb-6 text-sm font-bold text-slate-500 hover:text-blue-600">⬅ Quay lại sửa nội dung</button>
+                    <h2 class="text-2xl font-black text-slate-800 mb-8 border-b pb-4">Cấu hình bài thi</h2>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                        <div>
+                            <label class="block text-sm font-bold mb-2 text-slate-700">Thời gian làm bài (phút)</label>
+                            <input type="number" id="quiz-time" value="15" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl focus:border-blue-500 outline-none font-bold text-lg">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold mb-2 text-slate-700">Thời gian nộp tối thiểu (phút)</label>
+                            <input type="number" id="quiz-min-time" value="1" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl focus:border-blue-500 outline-none font-bold text-lg">
+                        </div>
+                    </div>
+
+                    <div class="space-y-4 mb-8">
+                        <div class="flex items-center justify-between p-4 border border-slate-100 rounded-xl hover:bg-slate-50 cursor-pointer" onclick="document.getElementById('quiz-shuffle').click()">
+                            <span class="font-bold text-slate-700">Đảo câu hỏi & Đáp án</span>
+                            <input type="checkbox" id="quiz-shuffle" class="w-6 h-6 rounded text-blue-600 accent-blue-600">
+                        </div>
+                        <div class="flex items-center justify-between p-4 border border-slate-100 rounded-xl hover:bg-slate-50 cursor-pointer" onclick="document.getElementById('quiz-show-ans').click()">
+                            <span class="font-bold text-slate-700">Cho xem đáp án sau khi thi</span>
+                            <input type="checkbox" id="quiz-show-ans" checked class="w-6 h-6 rounded text-blue-600 accent-blue-600">
+                        </div>
+                    </div>
+
+                    <div id="tf-settings-area" class="bg-slate-50 p-4 md:p-8 rounded-2xl border border-slate-200 mb-8 hidden">
+                        <div class="flex items-center gap-3 mb-6">
+                            <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-100">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 class="font-black text-slate-800 text-lg">Cấu hình điểm câu Đúng/Sai</h3>
+                                <p class="text-xs text-slate-500">Thiết lập % điểm nhận được dựa trên số ý trả lời đúng</p>
+                            </div>
+                        </div>
+                        
+                        <div id="tf-scoring-container" class="space-y-8"></div>
+                        
+                        <div class="mt-6 p-4 bg-amber-50 rounded-xl border border-amber-100 flex gap-3">
+                            <span class="text-amber-500 text-lg">💡</span>
+                            <p class="text-xs text-amber-700 leading-relaxed">
+                                <b>Mẹo:</b> Nếu bạn để trống <b>TẤT CẢ</b> các ô, hệ thống sẽ <b>tự động chia đều</b>. 
+                                Nếu nhập liệu, bạn phải nhập <b>ĐẦY ĐỦ</b> các ô trong cùng một nhóm câu hỏi. Điểm tối đa phải là 100%.
+                            </p>
+                        </div>
+                    </div>
+
+                    <button onclick="finishAndSave()" class="w-full bg-emerald-600 text-white font-black py-4 rounded-xl hover:bg-emerald-700 shadow-xl shadow-emerald-200 transition-all text-lg">
+                        LƯU BÀI THI & HOÀN TẤT
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <section id="section-list">
+            <div class="flex justify-between items-center mb-8">
+                <h2 class="text-xl md:text-2xl font-black text-slate-800">Bài kiểm tra của tôi</h2>
+                <button onclick="switchTab('create')" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md hover:bg-blue-700">+ TẠO MỚI</button>
+            </div>
+            <div id="quiz-container" class="grid grid-cols-1 md:grid-cols-2 gap-6"></div>
+        </section>
+
+        <section id="section-info" class="hidden">
+            <div class="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200 relative max-w-3xl mx-auto">
+                <button onclick="switchTab('list')" class="absolute top-6 right-6 text-slate-400 hover:text-slate-600">✕ Đóng</button>
+                <div id="quiz-detail-header"></div>
+                <div class="mt-12">
+                    <div class="flex justify-between items-center border-b pb-4 mb-6">
+                        <h3 class="text-lg font-black">LỊCH SỬ LÀM BÀI</h3>
+                        <button onclick="exportToExcel()" class="text-emerald-600 text-sm font-bold hover:underline">Xuất Excel</button>
+                    </div>
+                    <div id="history-list" class="space-y-3"></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="section-doing" class="hidden">
+            <div class="fixed top-0 left-0 w-full bg-white shadow-md p-3 md:p-4 flex justify-between items-center z-[60]">
+                <div class="flex items-center space-x-2 md:space-x-4 overflow-hidden">
+                    <span id="doing-title" class="font-black text-slate-700 border-r pr-2 md:pr-4 truncate max-w-[150px] md:max-w-xs"></span>
+                    <span id="timer" class="text-xl md:text-2xl font-mono font-bold text-red-600 italic">00:00</span>
+                </div>
+                <div class="flex items-center space-x-2 md:space-x-4">
+                     <span id="violation-badge" class="bg-red-100 text-red-600 px-2 py-1 rounded-full text-[10px] md:text-xs font-bold hidden whitespace-nowrap">Vi phạm: <span id="violation-count">0</span>/3</span>
+                    <button onclick="confirmSubmit()" class="bg-blue-600 text-white px-4 md:px-8 py-2 rounded-full text-xs md:text-sm font-black hover:bg-blue-700 transition-all shadow-md whitespace-nowrap">NỘP BÀI</button>
+                </div>
+            </div>
+            <div id="doing-content" class="mt-20 md:mt-24 pb-20 max-w-3xl mx-auto px-4"></div>
+        </section>
+
+        <section id="section-result" class="hidden animate-fade-in">
+            <div class="bg-white p-6 md:p-10 rounded-3xl shadow-xl border border-slate-100 text-center">
+                <div class="w-20 h-20 md:w-24 md:h-24 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6 text-3xl md:text-4xl font-black border-4 border-blue-100">
+                    <span id="res-score-circle"></span>
+                </div>
+                <h2 class="text-2xl md:text-3xl font-black mb-2">Kết quả bài làm</h2>
+                <div id="result-summary" class="text-sm md:text-base text-slate-500 mb-10"></div>
+                <div id="result-details" class="text-left space-y-6 max-w-4xl mx-auto border-t pt-10"></div>
+                <div class="flex space-x-4 mt-12 justify-center">
+                    <button onclick="switchTab('list')" class="bg-slate-800 text-white px-8 py-3 rounded-xl font-bold hover:bg-slate-900">VỀ TRANG CHỦ</button>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <div id="custom-modal" class="fixed inset-0 modal-overlay z-[100] hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl animate-pop-in border border-slate-200">
+            <div class="flex justify-center mb-4 text-4xl" id="modal-icon">⚠️</div>
+            <h3 class="text-xl font-black text-center text-slate-800 mb-2" id="modal-title">Thông báo</h3>
+            <div class="text-slate-600 text-center mb-6 text-sm" id="modal-desc">Nội dung...</div>
+            <div class="flex gap-3 justify-center" id="modal-actions"></div>
+        </div>
+    </div>
+
+    <script>
+        // --- GLOBAL VARIABLES ---
+        let quizzes = JSON.parse(localStorage.getItem('azota_data_v4') || '[]');
+        let currentQuiz = null;
+        let doingData = null;
+        let timerIdx = null;
+        let editingId = null;
+        let violationCount = 0;
+        let isExamActive = false;
+        
+        // --- HELPER FUNCTIONS ---
+        function showModal({ type = 'info', title, desc, onConfirm = null, confirmText = 'Đồng ý', onCancel = null, cancelText = 'Hủy' }) {
+            const modal = document.getElementById('custom-modal');
+            const icons = { 'warning': '⚠️', 'success': '🎉', 'danger': '🗑️', 'info': 'ℹ️' };
+            document.getElementById('modal-icon').innerText = icons[type] || 'ℹ️';
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-desc').innerHTML = desc;
+            
+            const actions = document.getElementById('modal-actions');
+            actions.innerHTML = '';
+
+            if (onCancel) {
+                const btnCancel = document.createElement('button');
+                btnCancel.className = "flex-1 px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition";
+                btnCancel.innerText = cancelText;
+                btnCancel.onclick = () => { closeModal(); onCancel(); };
+                actions.appendChild(btnCancel);
+            }
+
+            if (onConfirm) {
+                const btnConfirm = document.createElement('button');
+                const colors = type === 'danger' ? 'bg-red-600 hover:bg-red-700' : (type === 'success' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700');
+                btnConfirm.className = `flex-1 px-4 py-3 text-white font-bold rounded-xl shadow-lg transition ${colors}`;
+                btnConfirm.innerText = confirmText;
+                btnConfirm.onclick = () => { closeModal(); onConfirm(); };
+                actions.appendChild(btnConfirm);
+            } else {
+                 const btnClose = document.createElement('button');
+                 btnClose.className = "px-6 py-3 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-900 transition";
+                 btnClose.innerText = "Đóng";
+                 btnClose.onclick = closeModal;
+                 actions.appendChild(btnClose);
+            }
+            modal.classList.remove('hidden');
+        }
+        function closeModal() { document.getElementById('custom-modal').classList.add('hidden'); }
+        function syncScroll() { document.getElementById('editor-backdrop').scrollTop = document.getElementById('quiz-content').scrollTop; }
+
+        let previewTimeout;
+        function handleInput() {
+            updateHighlighting();
+            clearTimeout(previewTimeout);
+            previewTimeout = setTimeout(parseAndPreview, 500); 
+        }
+
+        // --- EDITOR HIGHLIGHTING ---
+        function updateHighlighting() {
+            const text = document.getElementById('quiz-content').value;
+            const html = text.replace(/\r\n/g, '\n').split('\n').map(line => {
+                const safeLine = line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") || ' ';
+                const trimmed = line.trim();
+                if (!trimmed) return `<div>${safeLine}</div>`;
+                if (trimmed.startsWith('#')) return `<div class="hl-header">${safeLine}</div>`;
+                if (/^(Câu|§Câu|\$Câu)\s*\d+:/i.test(trimmed)) return `<div>${safeLine}</div>`;
+                if (/^\s*(\*)?\s*[A-Z]\./.test(trimmed)) return `<div>${safeLine}</div>`; 
+                if (/^\[img:.*\]$/.test(trimmed)) return `<div>${safeLine}</div>`;
+                return `<div class="hl-error">${safeLine}</div>`;
+            }).join('');
+            document.getElementById('editor-backdrop').innerHTML = html;
+        }
+
+        // --- PARSER ---
+        function parseAndPreview() {
+            const raw = document.getElementById('quiz-content').value;
+            const previewList = document.getElementById('preview-list');
+            const previewStatus = document.getElementById('preview-status');
+            const btnContinue = document.getElementById('btn-continue');
+
+            if (!raw.trim()) {
+                previewList.innerHTML = '<div class="text-center text-slate-400 py-10">Vui lòng nhập nội dung câu hỏi...</div>';
+                previewStatus.innerText = "Trống";
+                btnContinue.classList.add('hidden');
+                return;
+            }
+
+            const normalizedRaw = raw.replace(/\r\n/g, '\n');
+            let sectionsRaw = [];
+            
+            if (/^\s*#/m.test(normalizedRaw)) {
+                const parts = ("\n" + normalizedRaw).split(/\n\s*#/);
+                for (let i = 1; i < parts.length; i++) {
+                    const part = parts[i];
+                    const splitIndex = part.indexOf('\n');
+                    let title, content;
+                    if (splitIndex === -1) { title = part.trim(); content = ""; } 
+                    else { title = part.substring(0, splitIndex).trim(); content = part.substring(splitIndex + 1); }
+                    if (!title) title = `Mục ${i}`;
+                    sectionsRaw.push({ title, content });
+                }
+            } else { sectionsRaw.push({ title: "Mục 1", content: normalizedRaw }); }
+
+            const sections = [];
+            let totalQ = 0;
+
+            sectionsRaw.forEach(secBlock => {
+                const currentSection = { title: secBlock.title, questions: [] };
+                let questionBlocks = ("\n" + secBlock.content).split(/\n(?=(?:Câu|§Câu|\$Câu)\s*\d+:)/i);
+
+                questionBlocks.forEach(block => {
+                    block = block.trim();
+                    if (!block) return;
+                    
+                    const matchHeader = block.match(/^(Câu|§Câu|\$Câu)\s*\d+:(.*)/i);
+                    if (matchHeader) {
+                        const headerType = matchHeader[1]; 
+                        let type = 'MCQ';
+                        if (headerType.startsWith('§')) type = 'TF';
+                        if (headerType.startsWith('$')) type = 'SA';
+
+                        let contentOnly = block.replace(/\r\n|\n/g, ' ').replace(/^(Câu|§Câu|\$Câu)\s*\d+:/i, '').trim();
+
+                        let img = "";
+                        const imgMatch = contentOnly.match(/\[img:(.*?)\]/);
+                        if (imgMatch) { img = imgMatch[1]; contentOnly = contentOnly.replace(imgMatch[0], ''); }
+
+                        const parts = contentOnly.split(/(\*?\s*[A-Z]\..*?)(?=\*?\s*[A-Z]\.|$)/g).filter(p => p.trim());
+                        let qText = "", startOptIdx = 0;
+                        if (parts.length > 0 && /^(\*?)\s*[A-Z]\./.test(parts[0])) { qText = ""; startOptIdx = 0; } 
+                        else if (parts.length > 0) { qText = parts[0]; startOptIdx = 1; }
+
+                        const options = [];
+                        const correctIndices = [];
+
+                        for (let i = startOptIdx; i < parts.length; i++) {
+                            let optText = parts[i].trim();
+                            let isCorrect = false;
+                            if (/^\s*\*/.test(optText)) { isCorrect = true; optText = optText.replace(/^\s*\*/, '').trim(); }
+                            optText = optText.replace(/;+\s*$/, '').trim();
+                            const label = optText.substring(0, 1); 
+                            
+                            if (type === 'SA' && i === startOptIdx) isCorrect = true;
+
+                            options.push({ label, text: optText.substring(2).trim(), isCorrect });
+                            if (isCorrect) correctIndices.push(label);
+                        }
+                        
+                        if (qText || options.length > 0) {
+                             currentSection.questions.push({
+                                id: 'q_' + Math.random().toString(36).substr(2, 9),
+                                text: qText, image: img, type: type,
+                                options, correctAns: correctIndices, point: null
+                            });
+                        }
+                    }
+                });
+                if (currentSection.questions.length > 0 || sectionsRaw.length > 1) { sections.push(currentSection); totalQ += currentSection.questions.length; }
+            });
+
+            if (totalQ > 0) {
+                window.tempSections = sections;
+                renderPreviewFromTemp();
+                previewStatus.className = "bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold";
+                previewStatus.innerText = `Đã nhận diện: ${totalQ} câu`;
+                btnContinue.classList.remove('hidden');
+            } else {
+                previewList.innerHTML = '<div class="text-center text-slate-400 py-4 italic">Đang nhập liệu hoặc chưa đúng cú pháp "Câu x:"...</div>';
+                previewStatus.className = "bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-xs font-bold";
+                previewStatus.innerText = "Chưa có câu hỏi";
+                btnContinue.classList.add('hidden');
+                window.tempSections = []; 
+            }
+        }
+
+        function renderPreviewFromTemp() {
+            const container = document.getElementById('preview-list');
+            container.innerHTML = '';
+            
+            window.tempSections.forEach((sec, sIdx) => {
+                let html = `<div class="bg-slate-50 p-4 rounded-xl border-l-4 border-blue-500 mb-6"><h4 class="font-black text-blue-800 uppercase"># ${sec.title}</h4>`;
+                
+                sec.questions.forEach((q, qIdx) => {
+                    let optionsHtml = '';
+                    if (q.type === 'MCQ') {
+                         optionsHtml = `<div class="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+                                        ${q.options.map(o => `
+                                            <div onclick="togglePreviewAns(${sIdx}, ${qIdx}, '${o.label}')" 
+                                                 class="preview-option text-sm p-2 rounded border flex items-center justify-between
+                                                 ${o.isCorrect ? 'bg-emerald-100 border-emerald-500 text-emerald-800 font-bold ring-1 ring-emerald-500' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}">
+                                                <span>${o.label}. ${o.text}</span>
+                                                ${o.isCorrect ? '<span class="text-emerald-600">✓</span>' : ''}
+                                            </div>`).join('')}
+                                    </div>`;
+                    } else if (q.type === 'TF') {
+                         optionsHtml = `<div class="mt-3 border rounded-lg overflow-hidden bg-white shadow-sm">
+                                            <div class="bg-slate-100 px-3 py-2 text-xs font-bold text-slate-500 border-b flex justify-between"><span>Nội dung ý</span><span class="mr-6">Đáp án</span></div>
+                                            ${q.options.map((o, oIdx) => `
+                                                <div class="tf-option-row hover:bg-slate-50">
+                                                    <div class="text-sm text-slate-700 flex-1 pr-4"><b>${o.label}.</b> ${o.text}</div>
+                                                    <div class="flex gap-2 shrink-0">
+                                                        <div onclick="updateTFKey(${sIdx}, ${qIdx}, ${oIdx}, true)" class="tf-btn true-btn ${o.isCorrect ? 'active' : ''}">Đúng</div>
+                                                        <div onclick="updateTFKey(${sIdx}, ${qIdx}, ${oIdx}, false)" class="tf-btn false-btn ${!o.isCorrect ? 'active' : ''}">Sai</div>
+                                                    </div>
+                                                </div>`).join('')}
+                                        </div>`;
+                    } else if (q.type === 'SA') {
+                        // UPDATE: Editable Input for Short Answer
+                        const ans = q.options.length > 0 ? q.options[0].text : '';
+                        optionsHtml = `<div class="mt-2">
+                            <label class="text-xs font-bold text-slate-500">Đáp án (nhập trực tiếp):</label>
+                            <input type="text" value="${ans}" 
+                                onchange="updateSAAnswer(${sIdx}, ${qIdx}, this.value)"
+                                class="w-full bg-white border border-slate-300 p-2 rounded text-slate-700 font-bold mt-1 focus:border-blue-500 outline-none" 
+                                placeholder="Nhập đáp án đúng..." />
+                            <p class="text-[10px] text-slate-400 mt-1 italic">Học sinh cần nhập chính xác nội dung này.</p>
+                        </div>`;
+                    }
+
+                    html += `
+                        <div class="bg-white p-4 mt-4 rounded-lg border shadow-sm group">
+                            <div class="flex flex-col md:flex-row justify-between gap-4">
+                                <div class="flex-1">
+                                    <div class="flex items-center gap-3 mb-2">
+                                        <div class="flex items-center bg-slate-100 rounded p-1">
+                                            <select onchange="changeQuestionType(${sIdx}, ${qIdx}, this.value)" class="type-select bg-transparent outline-none text-xs font-bold text-slate-600 cursor-pointer">
+                                                <option value="MCQ" ${q.type === 'MCQ' ? 'selected' : ''}>Trắc nghiệm</option>
+                                                <option value="TF" ${q.type === 'TF' ? 'selected' : ''}>Đúng / Sai</option>
+                                                <option value="SA" ${q.type === 'SA' ? 'selected' : ''}>Trả lời ngắn</option>
+                                            </select>
+                                        </div>
+                                        <p class="font-bold text-slate-800"><span class="text-blue-600">Câu ${qIdx + 1}:</span> ${q.text}</p>
+                                    </div>
+                                    ${q.image ? `<img src="${q.image}" class="h-20 object-contain my-2 border rounded">` : ''}
+                                    ${optionsHtml}
+                                </div>
+                                <div class="w-full md:w-auto mt-2 md:mt-0">
+                                     <input type="number" step="0.1" placeholder="Điểm" value="${q.point || ''}" onchange="updatePoint(${sIdx}, ${qIdx}, this.value)" class="w-20 border rounded p-2 text-center text-sm font-bold focus:border-blue-500 outline-none">
+                                </div>
+                            </div>
+                        </div>`;
+                });
+                html += `</div>`;
+                container.innerHTML += html;
+            });
+        }
+
+        // --- PREVIEW INTERACTION ---
+        function changeQuestionType(sIdx, qIdx, newType) {
+            const q = window.tempSections[sIdx].questions[qIdx];
+            if (q.type === newType) return;
+            q.type = newType;
+            if (newType === 'MCQ') {
+                q.options.forEach(o => o.isCorrect = false);
+                if(q.options.length > 0) q.options[0].isCorrect = true;
+            } else if (newType === 'TF') {
+                q.options.forEach(o => o.isCorrect = false); 
+            } else if (newType === 'SA') {
+                if (q.options.length > 1) {
+                    q.options = [q.options[0]];
+                }
+                if (q.options.length > 0) q.options[0].isCorrect = true;
+            }
+            updateTextAreaFromData(); renderPreviewFromTemp();
+        }
+        function updateTFKey(sIdx, qIdx, optIdx, isTrue) {
+            const q = window.tempSections[sIdx].questions[qIdx];
+            q.options[optIdx].isCorrect = isTrue;
+            q.correctAns = q.options.filter(o => o.isCorrect).map(o => o.label);
+            updateTextAreaFromData(); renderPreviewFromTemp();
+        }
+        function togglePreviewAns(sIdx, qIdx, label) {
+            const q = window.tempSections[sIdx].questions[qIdx];
+            if (q.type === 'MCQ') {
+                q.options.forEach(o => o.isCorrect = false);
+                const opt = q.options.find(o => o.label === label);
+                if(opt) opt.isCorrect = true;
+                q.correctAns = [label];
+            }
+            updateTextAreaFromData(); renderPreviewFromTemp();
+        }
+        // Helper function to update SA Answer and sync to text
+        function updateSAAnswer(sIdx, qIdx, val) {
+            const q = window.tempSections[sIdx].questions[qIdx];
+            if (q.options.length === 0) {
+                q.options.push({ label: 'A', text: val, isCorrect: true });
+            } else {
+                q.options[0].text = val;
+            }
+            updateTextAreaFromData();
+        }
+        function updatePoint(sIdx, qIdx, val) { window.tempSections[sIdx].questions[qIdx].point = val ? parseFloat(val) : null; }
+        
+        function updateTextAreaFromData() {
+            let txt = "";
+            window.tempSections.forEach(sec => {
+                txt += `# ${sec.title}\n`;
+                sec.questions.forEach((q, idx) => {
+                    let prefix = 'Câu';
+                    if (q.type === 'TF') prefix = '§Câu';
+                    if (q.type === 'SA') prefix = '$Câu';
+
+                    let qLine = q.text ? `${prefix} ${idx+1}: ${q.text}` : `${prefix} ${idx+1}:`;
+                    if(q.image) qLine += ` [img:${q.image}]`;
+                    txt += `${qLine}\n`;
+                    let opts = q.options.map(o => `${o.isCorrect ? '*' : ''}${o.label}. ${o.text}`).join('; ');
+                    txt += `${opts}\n\n`;
+                });
+            });
+            document.getElementById('quiz-content').value = txt;
+            updateHighlighting();
+        }
+
+        // --- WORKFLOW & DYNAMIC SETTINGS LOGIC ---
+        function proceedToSettings() {
+            if (!window.tempSections || window.tempSections.every(s => s.questions.length === 0)) 
+                return showModal({type: 'warning', title: 'Lỗi', desc: 'Chưa có câu hỏi nào hợp lệ!'});
+            
+            document.getElementById('create-step-1').classList.add('hidden');
+            document.getElementById('create-step-2').classList.remove('hidden');
+            window.scrollTo(0,0);
+
+            const tfLengths = new Set();
+            window.tempSections.forEach(s => {
+                s.questions.forEach(q => {
+                    if (q.type === 'TF') tfLengths.add(q.options.length);
+                });
+            });
+
+            const tfContainer = document.getElementById('tf-scoring-container');
+            const tfSettingsArea = document.getElementById('tf-settings-area');
+            tfContainer.innerHTML = '';
+
+            if (tfLengths.size === 0) {
+                tfSettingsArea.classList.add('hidden');
+            } else {
+                tfSettingsArea.classList.remove('hidden');
+                
+                let existingSchema = {};
+                if (editingId) {
+                    const q = quizzes.find(x => x.id === editingId);
+                    if (q && q.settings.tfSchemaObject) existingSchema = q.settings.tfSchemaObject;
+                }
+
+                Array.from(tfLengths).sort((a,b)=>a-b).forEach(len => {
+                    let inputsHtml = '';
+                    
+                    for(let i=1; i<=len; i++) {
+                        const savedVal = existingSchema[len] ? existingSchema[len][i-1] : null;
+                        const autoVal = Math.round(i * (100/len)); 
+                        
+                        inputsHtml += `
+                            <div class="flex-1 min-w-[120px]">
+                                <label class="text-[11px] font-black uppercase tracking-wider block mb-2 text-slate-400">Đúng ${i} ý</label>
+                                <div class="relative group">
+                                    <input type="number" 
+                                           data-len="${len}" data-idx="${i-1}" 
+                                           class="tf-dynamic-input w-full bg-white text-center border-2 border-slate-100 p-4 rounded-2xl font-black text-blue-600 outline-none focus:border-blue-500 transition-all text-xl" 
+                                           placeholder="${autoVal}"
+                                           value="${savedVal !== null && savedVal !== undefined ? savedVal : ''}">
+                                    <span class="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-300 font-bold group-focus-within:text-blue-500">%</span>
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    tfContainer.innerHTML += `
+                        <div class="animate-fade-in group-inputs" data-group-len="${len}">
+                            <h4 class="font-bold text-slate-500 mb-4 flex items-center gap-2">
+                                <span class="w-2 h-2 bg-blue-500 rounded-full"></span>
+                                Câu hỏi có <span class="text-slate-800">${len} ý trả lời</span>
+                            </h4>
+                            <div class="flex flex-wrap gap-4">
+                                ${inputsHtml}
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+        }
+
+        function backToEditor() {
+            document.getElementById('create-step-2').classList.add('hidden');
+            document.getElementById('create-step-1').classList.remove('hidden');
+            window.scrollTo(0,0);
+        }
+
+        function finishAndSave() {
+            const groups = document.querySelectorAll('.group-inputs');
+            let hasPartialError = false;
+            let hasOver100Error = false;
+            let hasNot100Error = false;
+
+            document.querySelectorAll('.tf-dynamic-input').forEach(i => i.classList.remove('input-error'));
+
+            groups.forEach(group => {
+                const inputs = Array.from(group.querySelectorAll('.tf-dynamic-input'));
+                let filledCount = 0;
+                let totalCount = inputs.length;
+
+                inputs.forEach(inp => {
+                    if (inp.value.trim() !== '') filledCount++;
+                });
+
+                // Error 1: Partial Fill
+                if (filledCount > 0 && filledCount < totalCount) {
+                    hasPartialError = true;
+                    inputs.forEach(inp => {
+                        if (inp.value.trim() === '') inp.classList.add('input-error');
+                    });
+                }
+                
+                // If filled, validate values
+                if (filledCount === totalCount) {
+                    const lastVal = parseFloat(inputs[inputs.length - 1].value);
+                    
+                    // Error 2: Any value > 100
+                    const anyOver = inputs.some(i => parseFloat(i.value) > 100);
+                    if (anyOver) {
+                        hasOver100Error = true;
+                        inputs.filter(i => parseFloat(i.value) > 100).forEach(i => i.classList.add('input-error'));
+                    }
+
+                    // Error 3: Last value != 100
+                    if (lastVal !== 100) {
+                        hasNot100Error = true;
+                        inputs[inputs.length - 1].classList.add('input-error');
+                    }
+                }
+            });
+
+            if (hasPartialError) {
+                return showModal({
+                    type: 'warning',
+                    title: 'Thiếu dữ liệu',
+                    desc: 'Bạn đã nhập điểm tùy chỉnh nhưng <b>chưa nhập đầy đủ</b> tất cả các trường trong nhóm.'
+                });
+            }
+
+            if (hasOver100Error) {
+                return showModal({
+                    type: 'warning',
+                    title: 'Lỗi giá trị',
+                    desc: 'Có ô nhập <b>vượt quá 100%</b> số điểm. Vui lòng kiểm tra lại.'
+                });
+            }
+
+            if (hasNot100Error) {
+                return showModal({
+                    type: 'warning',
+                    title: 'Lỗi giá trị',
+                    desc: 'Điểm cho số ý đúng tối đa <b>phải là 100%</b> (thiếu hoặc thừa điểm).<br>Ví dụ: Đúng 4/4 ý phải được 100% điểm.'
+                });
+            }
+
+            const title = document.getElementById('quiz-title').value || "Bài kiểm tra không tên";
+            let totalManual = 0, countAuto = 0;
+            window.tempSections.forEach(s => s.questions.forEach(q => {
+                if(q.point) totalManual += q.point; else countAuto++;
+            }));
+            const autoScore = countAuto > 0 ? (10 - totalManual) / countAuto : 0;
+            window.tempSections.forEach(s => s.questions.forEach(q => {
+                if(q.point === null) q.point = parseFloat(autoScore.toFixed(2));
+            }));
+
+            const tfSchemaObject = {};
+            const inputs = document.querySelectorAll('.tf-dynamic-input');
+            inputs.forEach(inp => {
+                const len = inp.getAttribute('data-len');
+                const idx = parseInt(inp.getAttribute('data-idx'));
+                const val = inp.value;
+
+                if (!tfSchemaObject[len]) tfSchemaObject[len] = [];
+                tfSchemaObject[len][idx] = val === "" ? null : parseFloat(val);
+            });
+
+            const quizData = {
+                id: editingId ? editingId : Date.now(),
+                title,
+                sections: window.tempSections,
+                settings: {
+                    time: parseInt(document.getElementById('quiz-time').value),
+                    minTime: parseInt(document.getElementById('quiz-min-time').value),
+                    shuffle: document.getElementById('quiz-shuffle').checked,
+                    showAns: document.getElementById('quiz-show-ans').checked,
+                    tfSchemaObject: tfSchemaObject 
+                },
+                history: editingId ? (quizzes.find(q => q.id === editingId)?.history || []) : []
+            };
+
+            if (editingId) {
+                const idx = quizzes.findIndex(q => q.id === editingId);
+                if(idx !== -1) quizzes[idx] = quizData;
+            } else { quizzes.unshift(quizData); }
+            
+            localStorage.setItem('azota_data_v4', JSON.stringify(quizzes));
+            showModal({ type: 'success', title: 'Hoàn tất', desc: 'Đã lưu cấu hình bài thi!', onConfirm: () => { switchTab('list'); } });
+        }
+
+        // --- LIST & NAVIGATION ---
+        function switchTab(tab) {
+            document.querySelectorAll('section').forEach(s => s.classList.add('hidden'));
+            document.getElementById('btn-create').classList.remove('active-tab');
+            document.getElementById('btn-list').classList.remove('active-tab');
+
+            if (tab === 'create') {
+                document.getElementById('section-create').classList.remove('hidden');
+                document.getElementById('btn-create').classList.add('active-tab');
+                updateHighlighting();
+            } else if (tab === 'list') {
+                resetCreateForm();
+                renderQuizList();
+                document.getElementById('section-list').classList.remove('hidden');
+                document.getElementById('btn-list').classList.add('active-tab');
+            }
+        }
+
+        function resetCreateForm() {
+            editingId = null;
+            document.getElementById('create-header-title').innerText = "Thiết lập bài thi mới";
+            document.getElementById('quiz-title').value = '';
+            document.getElementById('quiz-time').value = '15';
+            document.getElementById('quiz-content').value = '';
+            document.getElementById('create-step-1').classList.remove('hidden');
+            document.getElementById('create-step-2').classList.add('hidden');
+            updateHighlighting();
+            window.tempSections = null;
+            document.getElementById('preview-list').innerHTML = '';
+            document.getElementById('preview-status').innerText = 'Chưa có dữ liệu';
+            document.getElementById('btn-continue').classList.add('hidden');
+        }
+
+        function renderQuizList() {
+            const container = document.getElementById('quiz-container');
+            container.innerHTML = quizzes.length ? '' : '<div class="col-span-2 text-center py-20 text-slate-400">Chưa có bài thi nào.</div>';
+            quizzes.forEach(q => {
+                const qCount = q.sections.reduce((a, s) => a + s.questions.length, 0);
+                container.innerHTML += `
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 hover:shadow-lg transition-all group relative">
+                        <div class="flex justify-between items-start mb-3 pr-20">
+                            <div class="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center text-blue-600 font-bold">${q.title.charAt(0).toUpperCase()}</div>
+                            <span class="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">${q.settings.time}'</span>
+                        </div>
+                        <h3 class="text-lg font-black text-slate-800 mb-1 line-clamp-1 cursor-pointer hover:text-blue-600" onclick="showQuizDetail(${q.id})">${q.title}</h3>
+                        <p class="text-sm text-slate-500 mb-4">${qCount} câu hỏi • ${q.history.length} lượt thi</p>
+                        <div class="absolute top-5 right-5 flex flex-col space-y-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onclick="deleteQuiz(${q.id})" class="w-8 h-8 flex items-center justify-center rounded-full bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition shadow-sm">🗑️</button>
+                            <button onclick="editQuiz(${q.id})" class="w-8 h-8 flex items-center justify-center rounded-full bg-blue-50 text-blue-500 hover:bg-blue-500 hover:text-white transition shadow-sm">✏️</button>
+                        </div>
+                        <button onclick="showQuizDetail(${q.id})" class="w-full bg-slate-50 text-slate-600 font-bold py-2 rounded-lg text-sm hover:bg-blue-600 hover:text-white transition">VÀO THI</button>
+                    </div>`;
+            });
+        }
+        function deleteQuiz(id) { showModal({ type: 'danger', title: 'Xóa bài thi?', desc: 'Không thể hoàn tác.', confirmText: 'Xóa ngay', onConfirm: () => { quizzes = quizzes.filter(q => q.id !== id); localStorage.setItem('azota_data_v4', JSON.stringify(quizzes)); renderQuizList(); } }); }
+        
+        function editQuiz(id) {
+            const q = quizzes.find(item => item.id === id);
+            if(!q) return;
+            editingId = id;
+            document.getElementById('create-header-title').innerText = `Đang sửa: ${q.title}`;
+            document.getElementById('quiz-title').value = q.title;
+            document.getElementById('quiz-time').value = q.settings.time;
+            document.getElementById('quiz-min-time').value = q.settings.minTime;
+            document.getElementById('quiz-shuffle').checked = q.settings.shuffle;
+            document.getElementById('quiz-show-ans').checked = q.settings.showAns;
+            
+            window.tempSections = q.sections;
+            updateTextAreaFromData();
+            handleInput();
+            switchTab('create');
+        }
+
+        // --- EXAM LOGIC ---
+        function showQuizDetail(id) {
+            currentQuiz = quizzes.find(q => q.id === id);
+            document.getElementById('section-list').classList.add('hidden');
+            document.getElementById('section-info').classList.remove('hidden');
+            document.getElementById('quiz-detail-header').innerHTML = `<div class="text-center"><h2 class="text-2xl md:text-3xl font-black text-slate-800 mb-2">${currentQuiz.title}</h2><p class="text-slate-500 mb-6 font-medium">Thời gian: ${currentQuiz.settings.time}p | Tối thiểu: ${currentQuiz.settings.minTime}p</p><button onclick="startQuiz()" class="bg-blue-600 text-white px-10 py-3 rounded-xl font-bold text-lg shadow-lg hover:bg-blue-700 hover:scale-105 transition">BẮT ĐẦU</button><p class="text-red-500 text-xs mt-4 font-bold">* Lưu ý: Giám sát tự động bật.</p></div>`;
+            const hList = document.getElementById('history-list');
+            hList.innerHTML = currentQuiz.history.length ? '' : '<p class="text-center py-4 text-slate-300">Chưa có lịch sử.</p>';
+            currentQuiz.history.forEach((h, idx) => { hList.innerHTML += `<div class="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100 mb-2"><div><span class="text-lg font-black ${h.note ? 'text-red-600' : 'text-blue-600'}">${h.score}</span><span class="text-xs text-slate-400"> • ${h.date}</span>${h.note ? `<div class="text-[10px] text-red-500 font-bold">⚠️ ${h.note}</div>` : ''}</div><button onclick="viewResultDetail(${idx})" class="text-xs font-bold text-slate-500 hover:text-blue-600">XEM LẠI</button></div>`; });
+        }
+
+        function startQuiz() {
+            violationCount = 0; isExamActive = true;
+            document.getElementById('violation-badge').classList.add('hidden');
+            doingData = { quizId: currentQuiz.id, answers: {}, startTime: new Date() };
+            document.getElementById('section-info').classList.add('hidden');
+            document.getElementById('section-doing').classList.remove('hidden');
+            document.getElementById('doing-title').innerText = currentQuiz.title;
+            const content = document.getElementById('doing-content'); content.innerHTML = '';
+            
+            currentQuiz.sections.forEach(sec => {
+                let questions = [...sec.questions];
+                if (currentQuiz.settings.shuffle) questions.sort(() => Math.random() - 0.5);
+                
+                const secEl = document.createElement('div');
+                secEl.innerHTML = `<h3 class="text-sm font-black text-blue-600 bg-blue-50 px-4 py-2 rounded-lg mb-4 sticky top-16 z-30 shadow-sm border border-blue-100"># ${sec.title}</h3>`;
+                
+                questions.forEach((q, idx) => {
+                    const qEl = document.createElement('div'); qEl.className = 'question-item';
+                    
+                    let inputHtml = '';
+                    if (q.type === 'TF') {
+                         inputHtml = `<div class="mt-4 border border-slate-200 rounded-xl overflow-hidden">
+                            <div class="bg-slate-100 p-2 text-xs font-bold text-slate-500 flex justify-between px-4"><span>Nội dung</span><span>Đ / S</span></div>
+                            ${q.options.map(opt => `
+                                <div class="tf-grid-doing bg-white">
+                                    <span class="text-slate-800 text-sm font-medium leading-relaxed">${opt.label}. ${opt.text}</span>
+                                    <div class="tf-radio-group">
+                                        <label>
+                                            <input type="radio" name="${q.id}_${opt.label}" value="True" onchange="updateAnsTF('${q.id}', '${opt.label}', true)" class="tf-radio-hidden">
+                                            <span class="tf-radio-opt opt-true">Đúng</span>
+                                        </label>
+                                        <label>
+                                            <input type="radio" name="${q.id}_${opt.label}" value="False" onchange="updateAnsTF('${q.id}', '${opt.label}', false)" class="tf-radio-hidden">
+                                            <span class="tf-radio-opt opt-false">Sai</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            `).join('')}
+                         </div>`;
+                    } else if (q.type === 'SA') {
+                         inputHtml = `<div class="mt-4">
+                            <input type="text" placeholder="Nhập câu trả lời của bạn..." 
+                                oninput="updateAnsSA('${q.id}', this.value)"
+                                class="w-full border-2 border-slate-100 p-3 rounded-xl focus:border-blue-500 outline-none transition-colors text-slate-800 font-bold">
+                         </div>`;
+                    } else {
+                        inputHtml = `<div class="grid grid-cols-1 gap-2">${q.options.map(opt => `
+                            <label class="ans-label group">
+                                <input type="radio" name="${q.id}" value="${opt.label}" onchange="updateAnsMCQ('${q.id}', '${opt.label}')" class="w-5 h-5 mr-3 accent-blue-600 shrink-0">
+                                <span class="text-slate-600 font-medium group-hover:text-slate-900">${opt.label}. ${opt.text}</span>
+                            </label>`).join('')}
+                        </div>`;
+                    }
+
+                    qEl.innerHTML = `<div class="font-bold text-slate-800 mb-4"><span class="text-blue-600">Câu ${idx+1}:</span> ${q.text} ${q.image ? `<img src="${q.image}" class="mt-4 rounded border max-h-56 mx-auto">` : ''}</div>${inputHtml}`;
+                    secEl.appendChild(qEl);
+                });
+                content.appendChild(secEl);
+            });
+            let timeLeft = currentQuiz.settings.time * 60; updateTimer(timeLeft);
+            timerIdx = setInterval(() => { timeLeft--; updateTimer(timeLeft); if (timeLeft <= 0) { clearInterval(timerIdx); showModal({type: 'warning', title: 'Hết giờ', desc: 'Hệ thống đang nộp bài...', onConfirm: ()=>submitQuiz()}); setTimeout(submitQuiz, 2000); } }, 1000);
+        }
+        function updateTimer(t) { document.getElementById('timer').innerText = `${Math.floor(t/60).toString().padStart(2,'0')}:${(t%60).toString().padStart(2,'0')}`; }
+        function updateAnsMCQ(qId, val) { doingData.answers[qId] = [val]; }
+        function updateAnsSA(qId, val) { doingData.answers[qId] = [val]; } 
+        function updateAnsTF(qId, optLabel, isTrue) {
+            if (!doingData.answers[qId]) doingData.answers[qId] = {};
+            doingData.answers[qId][optLabel] = isTrue;
+        }
+
+        function confirmSubmit() {
+            const diffSec = (new Date() - doingData.startTime) / 1000;
+            if (diffSec < currentQuiz.settings.minTime * 60) return showModal({type: 'warning', title: 'Chưa đủ thời gian', desc: `Cần làm ít nhất ${currentQuiz.settings.minTime} phút.`});
+            showModal({type: 'info', title: 'Xác nhận', desc: 'Nộp bài ngay?', confirmText: 'NỘP BÀI', onConfirm: () => submitQuiz(), onCancel: () => {} });
+        }
+
+        function submitQuiz(isPenalized = false) {
+            clearInterval(timerIdx); isExamActive = false; 
+            const now = new Date(); const dur = Math.floor((now - doingData.startTime)/1000);
+            let finalScore = 0; 
+            const tfSchemaObj = currentQuiz.settings.tfSchemaObject || {};
+
+            currentQuiz.sections.forEach(sec => { 
+                sec.questions.forEach(q => { 
+                    if (q.type === 'MCQ') {
+                        const userAns = (doingData.answers[q.id] || [])[0];
+                        const correct = q.correctAns[0];
+                        if (userAns === correct) finalScore += q.point;
+                    } else if (q.type === 'SA') {
+                        const userAns = (doingData.answers[q.id] || [])[0] || "";
+                        const correct = q.options[0].text;
+                        if (userAns.trim().toLowerCase() === correct.trim().toLowerCase()) {
+                            finalScore += q.point;
+                        }
+                    } else {
+                        const userAnsObj = doingData.answers[q.id] || {};
+                        let matchCount = 0;
+                        q.options.forEach(o => {
+                            const uVal = userAnsObj[o.label];
+                            if (uVal === o.isCorrect) matchCount++;
+                        });
+                        
+                        if (matchCount > 0) {
+                            const totalOpts = q.options.length;
+                            let percent = 0;
+                            if (tfSchemaObj[totalOpts] && tfSchemaObj[totalOpts][matchCount - 1] !== null) {
+                                percent = tfSchemaObj[totalOpts][matchCount - 1];
+                            } else {
+                                percent = (matchCount / totalOpts) * 100;
+                            }
+                            finalScore += q.point * (percent / 100);
+                        }
+                    }
+                }); 
+            });
+
+            if (isPenalized) finalScore *= 0.5;
+            const record = { score: finalScore.toFixed(2), duration: `${Math.floor(dur/60)}p ${dur%60}s`, date: now.toLocaleString(), userAnswers: doingData.answers, note: isPenalized ? "Vi phạm quy chế" : "" };
+            currentQuiz.history.unshift(record); localStorage.setItem('azota_data_v4', JSON.stringify(quizzes)); showResult(record);
+        }
+
+        function showResult(res) {
+            document.getElementById('section-doing').classList.add('hidden'); document.getElementById('section-result').classList.remove('hidden'); window.scrollTo({ top: 0, behavior: 'smooth' });
+            document.getElementById('res-score-circle').innerText = res.score; 
+            document.getElementById('result-summary').innerHTML = `Hoàn thành lúc: <b>${res.date}</b><br>Thời gian: <b>${res.duration}</b>${res.note ? `<br><span class="text-red-500 font-bold">${res.note}</span>` : ''}`;
+            const detail = document.getElementById('result-details'); detail.innerHTML = '';
+            
+            if (currentQuiz.settings.showAns) {
+                currentQuiz.sections.forEach(sec => {
+                    detail.innerHTML += `<h4 class="font-black text-slate-400 uppercase text-xs tracking-widest mt-6 mb-2"># ${sec.title}</h4>`;
+                    sec.questions.forEach((q, i) => {
+                        let contentHtml = '';
+                        let isCorrectOverall = false;
+
+                        if (q.type === 'MCQ') {
+                            const userAns = (res.userAnswers[q.id] || [])[0];
+                            const correctRaw = q.correctAns[0];
+                            isCorrectOverall = userAns === correctRaw;
+                            contentHtml = q.options.map(opt => {
+                                const isSel = userAns === opt.label; const isTrue = opt.isCorrect;
+                                let style = "bg-white border-slate-200 opacity-70";
+                                if (isTrue) style = "bg-emerald-50 border-emerald-500 text-emerald-800 font-bold";
+                                if (isSel && !isTrue) style = "bg-red-50 border-red-500 text-red-800";
+                                if (isSel && isTrue) style = "bg-emerald-100 border-emerald-600 text-emerald-900 font-bold";
+                                return `<div class="p-3 rounded-lg border mb-2 text-sm ${style} flex justify-between"><span>${opt.label}. ${opt.text}</span> ${isTrue?'✓':''}</div>`;
+                            }).join('');
+                            detail.innerHTML += `<div class="p-5 rounded-2xl border-l-4 ${isCorrectOverall ? 'border-emerald-500 bg-white shadow-sm' : 'border-red-500 bg-white shadow-sm'}">
+                                <div class="font-bold text-slate-800 mb-3"><span class="${isCorrectOverall ? 'text-emerald-600' : 'text-red-600'}">Câu ${i+1}:</span> ${q.text} <span class="text-xs bg-slate-100 px-2 py-1 rounded ml-2 font-normal text-slate-500">${q.point}đ</span></div>
+                                ${contentHtml}
+                            </div>`;
+                        } else if (q.type === 'SA') {
+                            const userAns = (res.userAnswers[q.id] || [])[0] || "(Bỏ trống)";
+                            const correctRaw = q.options[0].text;
+                            isCorrectOverall = userAns.trim().toLowerCase() === correctRaw.trim().toLowerCase();
+                            
+                            detail.innerHTML += `<div class="p-5 rounded-2xl border-l-4 ${isCorrectOverall ? 'border-emerald-500 bg-white shadow-sm' : 'border-red-500 bg-white shadow-sm'}">
+                                <div class="font-bold text-slate-800 mb-3"><span class="${isCorrectOverall ? 'text-emerald-600' : 'text-red-600'}">Câu ${i+1}:</span> ${q.text} <span class="text-xs bg-slate-100 px-2 py-1 rounded ml-2 font-normal text-slate-500">${q.point}đ</span></div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                                    <div class="bg-slate-50 p-3 rounded border">
+                                        <div class="text-xs text-slate-400 font-bold mb-1 uppercase">Câu trả lời của bạn</div>
+                                        <div class="font-bold ${isCorrectOverall ? 'text-emerald-600' : 'text-red-600'}">${userAns}</div>
+                                    </div>
+                                    <div class="bg-emerald-50 p-3 rounded border border-emerald-100">
+                                        <div class="text-xs text-emerald-400 font-bold mb-1 uppercase">Đáp án đúng</div>
+                                        <div class="font-bold text-emerald-700">${correctRaw}</div>
+                                    </div>
+                                </div>
+                            </div>`;
+                        } else {
+                            const userAnsObj = res.userAnswers[q.id] || {};
+                            let correctCount = 0;
+                            const tableRows = q.options.map(opt => {
+                                const uVal = userAnsObj[opt.label]; 
+                                const isTrue = opt.isCorrect;
+                                const isMatch = uVal === isTrue;
+                                if(isMatch) correctCount++;
+                                
+                                const uText = uVal === undefined ? "—" : (uVal ? "Đúng" : "Sai");
+                                const trueText = isTrue ? "Đúng" : "Sai";
+                                const statusClass = isMatch ? "text-emerald-600 bg-emerald-50 border-emerald-200" : "text-red-600 bg-red-50 border-red-200";
+
+                                return `<div class="tf-res-row">
+                                    <div class="font-bold text-slate-500">${opt.label}</div>
+                                    <div class="text-slate-800">${opt.text}</div>
+                                    <div class="tf-res-status border rounded ${statusClass} text-center font-bold text-xs p-1">
+                                        <div class="block md:hidden text-[10px] opacity-70 font-normal">Bạn: ${uText} / Đáp án: ${trueText}</div>
+                                        <div class="hidden md:block">${uText} / ${trueText}</div>
+                                    </div>
+                                </div>`;
+                            }).join('');
+
+                            const totalOpts = q.options.length;
+                            const tfSchemaObj = currentQuiz.settings.tfSchemaObject || {};
+                            let percent = 0;
+                            if (correctCount > 0) {
+                                if (tfSchemaObj[totalOpts] && tfSchemaObj[totalOpts][correctCount-1] !== null) {
+                                    percent = tfSchemaObj[totalOpts][correctCount-1];
+                                } else {
+                                    percent = (correctCount/totalOpts)*100;
+                                }
+                            }
+                            let earned = (q.point * percent / 100).toFixed(2);
+
+                            detail.innerHTML += `
+                            <div class="p-5 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                                <div class="font-bold text-slate-800 mb-2 flex justify-between">
+                                    <span>Câu ${i+1}: ${q.text}</span>
+                                    <span class="text-blue-600 text-sm bg-blue-50 px-2 py-1 rounded">+${earned}/${q.point}đ</span>
+                                </div>
+                                <div class="border rounded-lg overflow-hidden">
+                                    <div class="bg-slate-100 p-2 text-xs font-bold text-slate-500 flex md:grid md:grid-cols-[50px_1fr_100px] justify-between">
+                                        <span class="hidden md:block">Ý</span>
+                                        <span>Nội dung</span>
+                                        <span class="hidden md:block text-center">Bạn chọn / Đáp án</span>
+                                        <span class="md:hidden">Kết quả</span>
+                                    </div>
+                                    ${tableRows}
+                                </div>
+                                <div class="mt-2 text-xs text-right text-slate-400 font-bold italic">Đúng ${correctCount}/${q.options.length} ý (${parseFloat(percent).toFixed(1)}%)</div>
+                            </div>`;
+                        }
+                    });
+                });
+            } else { detail.innerHTML = `<div class="p-10 text-center bg-slate-50 rounded-xl"><p class="text-slate-400 italic">Đáp án đã bị ẩn bởi người tạo đề.</p></div>`; }
+        }
+        function viewResultDetail(idx) { showResult(currentQuiz.history[idx]); }
+        function exportToExcel() { if (!currentQuiz.history.length) return showModal({type:'warning', title:'Trống', desc:'Chưa có dữ liệu.'}); const data = currentQuiz.history.map(h => ({ "Ngày": h.date, "Điểm": h.score, "Thời gian": h.duration, "Ghi chú": h.note || "" })); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), "KetQua"); XLSX.writeFile(wb, `${currentQuiz.title}_KetQua.xlsx`); }
+        
+        document.addEventListener('keydown', function(e) { if (!isExamActive) return; if (e.key === 'F12' || (e.ctrlKey && (e.key === 'u' || e.key === 'U')) || e.key === 'PrintScreen') { e.preventDefault(); showModal({ type: 'warning', title: 'Cảnh báo', desc: 'Chức năng này bị khóa!'}); } });
+        document.addEventListener("visibilitychange", () => { if (isExamActive && document.hidden) { violationCount++; document.getElementById('violation-badge').classList.remove('hidden'); document.getElementById('violation-count').innerText = violationCount; if (violationCount >= 3) { isExamActive = false; showModal({ type: 'danger', title: 'Đình chỉ', desc: 'Rời màn hình quá 3 lần.', onConfirm: () => submitQuiz(true), confirmText: 'Xem kết quả' }); } } });
+        
+        switchTab('list');
+    </script>
+</body>
+</html>
