@@ -13,7 +13,6 @@ const validSoils = [
     'rooted_dirt', 'mycelium', 'moss_block'
 ];
 
-// Hàm khởi tạo Bot độc lập
 function initBot(botConfig) {
     const botName = botConfig.username;
     let bot;
@@ -93,7 +92,6 @@ function initBot(botConfig) {
                     console.log(`[${botName} *] Đã gửi lệnh đăng nhập. Đang đợi 3 giây...`);
                     
                     await delay(3000); 
-                    
                     setTimeout(() => { isLoggingIn = false; }, 7000); 
                     if (!bypassTaskRunning) { bypassTaskRunning = true; runBypassLoop(); }
                 }
@@ -134,9 +132,7 @@ function initBot(botConfig) {
                 await delay(4000); 
                 let clock = bot.inventory.items().find(i => i.name.includes('clock'));
                 if (clock) {
-                    console.log(`[${botName} *] Đã thấy đồng hồ trong túi đồ, chờ 3 giây trước khi mở...`);
                     await delay(3000); 
-                    
                     await bot.equip(clock, 'hand');
                     bot.activateItem();
                     
@@ -144,8 +140,8 @@ function initBot(botConfig) {
                     if (menuWindow) {
                         await delay(1500); 
                         await bot.clickWindow(24, 0, 0); 
-                        
                         await delay(8000); 
+                        
                         bot.chat('/shop');
                         const shopWindow = await waitForWindow(8000); 
                         if (shopWindow) {
@@ -204,6 +200,23 @@ function initBot(botConfig) {
         return totalItems;
     }
 
+    // ==========================================
+    // HÀM KIỂM TRA TRANG BỊ CỰC KỲ NGHIÊM NGẶT
+    // ==========================================
+    async function strictEquip(matchStr, destination, isExact = false) {
+        let item = bot.inventory.items().find(i => isExact ? i.name === matchStr : i.name.includes(matchStr));
+        if (!item) return false; // Không có trong túi
+        try {
+            // Nếu đã cầm đúng đồ rồi thì bỏ qua
+            if (bot.heldItem && (isExact ? bot.heldItem.name === matchStr : bot.heldItem.name.includes(matchStr))) return true;
+            await bot.equip(item, destination);
+            await delay(200); // Chờ đồng bộ server
+            return true;
+        } catch (err) {
+            return false;
+        }
+    }
+
     async function startFarmLoop() {
         if (isFarming) return;
         isFarming = true;
@@ -216,28 +229,20 @@ function initBot(botConfig) {
             try {
                 const currentItemCount = countItemsInArea();
 
-                if (currentItemCount > 2000) {
-                    isPausedByItemLimit = true;
-                }
-
+                if (currentItemCount > 2000) isPausedByItemLimit = true;
                 if (isPausedByItemLimit) {
-                    if (currentItemCount <= 96) {
-                        isPausedByItemLimit = false; 
-                    } else {
-                        if (isTreeGrown()) {
-                            await delay(1000); 
-                            continue; 
-                        }
+                    if (currentItemCount <= 96) isPausedByItemLimit = false; 
+                    else {
+                        if (isTreeGrown()) { await delay(1000); continue; }
                     }
                 }
 
-                // FIX: Ngăn chặn hoàn toàn việc ném rác nếu đang mở GUI order hoặc sửa đồ
                 if (!isOrdering && !isRepairing && !bot.currentWindow) {
                     await dropTrashBehind(); 
                 }
                 
                 await logicTick();
-                await delay(25);
+                await delay(50);
             } catch (e) { await delay(1000); }
         }
     }
@@ -266,6 +271,27 @@ function initBot(botConfig) {
         return checkBlock(pos) && checkBlock(pos.offset(1, 0, 0)) && checkBlock(pos.offset(0, 0, 1)) && checkBlock(pos.offset(1, 0, 1));
     }
 
+    // Lọc ra các toạ độ thiếu mầm cây
+    function getMissingSaplingPositions() {
+        let missing = [];
+        for (let pos of lockedDirt) {
+            const blockAbove = bot.blockAt(pos.offset(0, 1, 0));
+            // Trả về true (nghĩa là thiếu) nếu block phía trên không phải là gỗ và cũng không phải mầm
+            if (blockAbove && blockAbove.name !== 'spruce_log' && blockAbove.name !== 'spruce_sapling') {
+                missing.push(pos);
+            }
+        }
+        return missing;
+    }
+
+    function isTreeGrown() {
+        for (let pos of lockedDirt) {
+            const block = bot.blockAt(pos.offset(0, 1, 0));
+            if (block && block.name === 'spruce_log') return true;
+        }
+        return false;
+    }
+
     async function logicTick() {
         if (isOrdering || isRepairing || bot.currentWindow) return;
         
@@ -279,25 +305,18 @@ function initBot(botConfig) {
         let boneMeal = bot.inventory.items().find(i => i.name === 'bone_meal');
         if (!boneMeal) { await orderItem('bone_meal'); return; }
 
-        if (isTreeGrown()) { await chopTree(); } 
-        else if (hasMissingSaplings()) { await plantSaplings(sapling); } 
-        else { await boneMealSaplings(boneMeal); }
-    }
-
-    function isTreeGrown() {
-        for (let pos of lockedDirt) {
-            const block = bot.blockAt(pos.offset(0, 1, 0));
-            if (block && block.name === 'spruce_log') return true;
+        if (isTreeGrown()) { 
+            await chopTree(); 
+        } else {
+            let missingPositions = getMissingSaplingPositions();
+            // Nếu có ô đất trống (chưa có mầm), buộc phải đặt lại mầm cho đủ 4 ô
+            if (missingPositions.length > 0) {
+                await plantSaplings(missingPositions); 
+            } else {
+                // Đủ 4 mầm rồi mới được bón xương
+                await boneMealSaplings(); 
+            }
         }
-        return false;
-    }
-
-    function hasMissingSaplings() {
-        for (let pos of lockedDirt) {
-            const block = bot.blockAt(pos.offset(0, 1, 0));
-            if (block && block.name === 'air') return true;
-        }
-        return false;
     }
 
     async function dropTrashBehind() {
@@ -305,83 +324,70 @@ function initBot(botConfig) {
         const trashItems = bot.inventory.items().filter(i => i.name === 'spruce_log' || i.name === 'stick');
         if (trashItems.length === 0) return;
         
-        const backYaw = bot.entity.yaw + Math.PI;
+        const originalYaw = bot.entity.yaw;
+        const backYaw = originalYaw + Math.PI;
+        
         await bot.look(backYaw, 0, true).catch(() => {});
         await delay(150); 
         
         for (let item of trashItems) {
-            // Kiểm tra một lần nữa trong vòng lặp đề phòng trường hợp GUI vừa bật lên bất ngờ
             if (isOrdering || isRepairing || bot.currentWindow) break;
             await bot.tossStack(item).catch(() => {});
             await delay(50); 
         }
+        
+        // Ngẩng mặt lên góc cũ để không kẹt nhìn xuống đất
+        await bot.look(originalYaw, 0, true).catch(() => {});
         await delay(100); 
     }
 
-    async function plantSaplings(saplingItem) {
+    async function plantSaplings(missingPositions) {
         if (isOrdering || isRepairing || bot.currentWindow) return;
         
-        // FIX: Đảm bảo trang bị đúng mầm cây lên tay trước khi đặt block
-        await bot.equip(saplingItem, 'hand');
-        await delay(150); // Chờ một chút để client đồng bộ việc cầm vật phẩm
-
-        for (let pos of lockedDirt) {
+        for (let pos of missingPositions) {
             if (isOrdering || isRepairing || bot.currentWindow) return;
             
+            // Ép cầm đúng mầm cây (isExact = true)
+            const isEquipped = await strictEquip('spruce_sapling', 'hand', true);
+            if (!isEquipped) break; // Cầm xịt hoặc hết -> thoát ra ngoài để gọi mua đồ
+
             const dirtBlock = bot.blockAt(pos);
             const spaceAbove = bot.blockAt(pos.offset(0, 1, 0));
             
-            if (spaceAbove && spaceAbove.name === 'air') {
-                // FIX: Kiểm tra nghiêm ngặt món đồ đang cầm trên tay, nếu không phải mầm cây thì không đặt bừa bãi
-                const heldItem = bot.heldItem;
-                if (!heldItem || heldItem.name !== 'spruce_sapling') {
-                    // Nếu tay không hoặc cầm sai đồ, tìm lại mầm cây để cầm lại
-                    let reCheckSapling = bot.inventory.items().find(i => i.name === 'spruce_sapling');
-                    if (reCheckSapling) {
-                        await bot.equip(reCheckSapling, 'hand');
-                        await delay(150);
-                    } else {
-                        break; // Thực sự hết mầm cây, thoát ra để logicTick kích hoạt mua đồ
-                    }
-                }
-
+            if (spaceAbove && spaceAbove.name !== 'spruce_log' && spaceAbove.name !== 'spruce_sapling') {
                 await bot.lookAt(spaceAbove.position.offset(0.5, 0, 0.5), true).catch(() => {});
                 await bot.placeBlock(dirtBlock, new Vec3(0, 1, 0)).catch(() => {});
-                await delay(80); 
+                await delay(100); 
             }
         }
     }
 
-    async function boneMealSaplings(boneMealItem) {
+    async function boneMealSaplings() {
         if (isOrdering || isRepairing || bot.currentWindow) return;
-        await bot.equip(boneMealItem, 'hand');
-        await delay(100);
         
         const targetSaplingPos = lockedDirt[0].offset(0, 1, 0);
-        const saplingBlock = bot.blockAt(targetSaplingPos);
         
-        if (saplingBlock && saplingBlock.name === 'spruce_sapling') {
+        for (let i = 0; i < 4; i++) {
+            if (isOrdering || isRepairing || bot.currentWindow) return;
+            
+            const isEquipped = await strictEquip('bone_meal', 'hand', true);
+            if (!isEquipped) break;
+
+            const saplingBlock = bot.blockAt(targetSaplingPos);
+            if (!saplingBlock || saplingBlock.name !== 'spruce_sapling') break;
+
             await bot.lookAt(saplingBlock.position.offset(0.5, 0.5, 0.5), true).catch(() => {});
-            for (let i = 0; i < 4; i++) {
-                if (isOrdering || isRepairing || bot.currentWindow) return;
-                const currentBlock = bot.blockAt(targetSaplingPos);
-                if (!currentBlock || currentBlock.name !== 'spruce_sapling') break;
-                bot.activateBlock(currentBlock, new Vec3(0, 1, 0)).catch(() => {}); 
-                await delay(70);
-            }
+            bot.activateBlock(saplingBlock, new Vec3(0, 1, 0)).catch(() => {}); 
+            await delay(80);
         }
     }
 
     async function chopTree() {
         if (isOrdering || isRepairing || bot.currentWindow) return;
-        let axe = bot.inventory.items().find(i => i.name.includes('netherite_axe'));
-        if (axe) {
-            await bot.equip(axe, 'hand');
-            await delay(100);
-        }
 
         while (true) {
-            if (isOrdering || isRepairing || bot.currentWindow) return;
+            if (isOrdering || isRepairing || bot.currentWindow) break;
+            
             let logs = [];
             for (let pos of lockedDirt) {
                 for (let y = 1; y <= 30; y++) {
@@ -393,11 +399,18 @@ function initBot(botConfig) {
             logs.sort((a, b) => bot.entity.position.distanceTo(a.position) - bot.entity.position.distanceTo(b.position));
             const p = logs[0].position;
 
+            // Ép cầm rìu trước khi chém
+            const isEquipped = await strictEquip('netherite_axe', 'hand', false);
+            if (!isEquipped) break;
+
             await bot.lookAt(p.offset(0.5, 0.5, 0.5), true).catch(() => {});
             bot._client.write('block_dig', { status: 0, location: { x: p.x, y: p.y, z: p.z }, face: 1, sequence: 0 });
             await delay(550); 
             bot._client.write('block_dig', { status: 2, location: { x: p.x, y: p.y, z: p.z }, face: 1, sequence: 0 });
         }
+        
+        // Chém xong ngẩng mặt lên vị trí bình thường
+        await bot.look(bot.entity.yaw, 0, true).catch(() => {});
     }
 
     async function orderItem(type) {
@@ -433,8 +446,11 @@ function initBot(botConfig) {
             
             await delay(1500); 
             bot.closeWindow(gui3);
-            await delay(2500); // Chờ thêm một chút để hệ thống nhận diện đóng hoàn toàn các rương GUI
+            await delay(2500); 
         } catch(e) {}
+        
+        // Mua đồ xong ngẩng mặt lên
+        await bot.look(bot.entity.yaw, 0, true).catch(() => {});
         isOrdering = false; 
     }
 
@@ -463,7 +479,7 @@ function initBot(botConfig) {
             await delay(1000);
             let expBottle = bot.inventory.items().find(i => i.name === 'experience_bottle');
             while (expBottle !== undefined) {
-                await bot.equip(expBottle, 'off-hand');
+                await strictEquip('experience_bottle', 'off-hand', true);
                 await delay(100);
                 bot.activateItem(true); await delay(80);
                 let checkAxe = bot.inventory.items().find(i => i.name.includes('netherite_axe'));
