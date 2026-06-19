@@ -1,0 +1,27 @@
+{
+    "server_ip": "Kingmc.vn",
+    "server_port": 25565,
+    "version": "1.21.1",
+    "password": "hoarambut",
+    "join_delay_ms": 6000,
+    "bots": [
+        {
+            "username": "ZeroName1K",
+            "use_proxy": false,
+            "proxy": {
+                "host": "152.53.137.180",
+                "port": 1081,
+                "user": "",
+                "pass": ""
+            }
+        },
+        {
+            "username": "ZeroName2K",
+            "use_proxy": false
+        },
+        {
+            "username": "ZeroName3K",
+            "use_proxy": false
+        }
+    ]
+}
