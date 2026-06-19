@@ -1,7 +1,7 @@
 const fs = require('fs');
 const mineflayer = require('mineflayer');
 const { Vec3 } = require('vec3');
-const { SocksClient } = require('socks'); // Đã đổi sang thư viện Socks chuyên dụng
+const { SocksClient } = require('socks');
 
 // Đọc cấu hình từ file config.json
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
@@ -34,7 +34,6 @@ function initBot(botConfig) {
             version: config.version 
         };
 
-        // ÉP 100% KẾT NỐI QUA PROXY TCP (Khắc phục triệt để lộ IP thật)
         if (botConfig.use_proxy && botConfig.proxy) {
             botOptions.connect = (client) => {
                 SocksClient.createConnection({
@@ -63,6 +62,8 @@ function initBot(botConfig) {
         }
 
         bot = mineflayer.createBot(botOptions);
+        
+        bot.setMaxListeners(0); 
 
         bot.on('login', () => {
             console.log(`[${botName} +] Đã kết nối vào server.`);
@@ -84,7 +85,7 @@ function initBot(botConfig) {
             const text = message.toString();
             const textLower = text.toLowerCase();
             
-            if (textLower.includes('sảnh') && !smpConnected) {
+            if (textLower.includes('sảnh') && textLower.includes('đăng nhập bằng lệnh') && !smpConnected) {
                 if (!isLoggingIn) {
                     isLoggingIn = true;
                     await delay(500); 
@@ -127,9 +128,6 @@ function initBot(botConfig) {
         bot.on('error', (err) => console.log(`[${botName} -] Lỗi mạng/bot: ${err.message}`));
     }
 
-    // ==========================================
-    // MODULE: LOGIC BYPASS & AUTO FARM
-    // ==========================================
     async function runBypassLoop() {
         while (bypassTaskRunning && !smpConnected) {
             try {
@@ -233,7 +231,11 @@ function initBot(botConfig) {
                     }
                 }
 
-                await dropTrashBehind(); 
+                // FIX: Ngăn chặn hoàn toàn việc ném rác nếu đang mở GUI order hoặc sửa đồ
+                if (!isOrdering && !isRepairing && !bot.currentWindow) {
+                    await dropTrashBehind(); 
+                }
+                
                 await logicTick();
                 await delay(25);
             } catch (e) { await delay(1000); }
@@ -265,7 +267,8 @@ function initBot(botConfig) {
     }
 
     async function logicTick() {
-        if (isOrdering || isRepairing) return;
+        if (isOrdering || isRepairing || bot.currentWindow) return;
+        
         let axe = bot.inventory.items().find(i => i.name.includes('netherite_axe'));
         if (!axe) return;
         if (axe.durabilityUsed >= 1531) { await repairAxe(axe); return; }
@@ -298,7 +301,7 @@ function initBot(botConfig) {
     }
 
     async function dropTrashBehind() {
-        if (isOrdering || isRepairing) return;
+        if (isOrdering || isRepairing || bot.currentWindow) return;
         const trashItems = bot.inventory.items().filter(i => i.name === 'spruce_log' || i.name === 'stick');
         if (trashItems.length === 0) return;
         
@@ -307,6 +310,8 @@ function initBot(botConfig) {
         await delay(150); 
         
         for (let item of trashItems) {
+            // Kiểm tra một lần nữa trong vòng lặp đề phòng trường hợp GUI vừa bật lên bất ngờ
+            if (isOrdering || isRepairing || bot.currentWindow) break;
             await bot.tossStack(item).catch(() => {});
             await delay(50); 
         }
@@ -314,39 +319,69 @@ function initBot(botConfig) {
     }
 
     async function plantSaplings(saplingItem) {
+        if (isOrdering || isRepairing || bot.currentWindow) return;
+        
+        // FIX: Đảm bảo trang bị đúng mầm cây lên tay trước khi đặt block
         await bot.equip(saplingItem, 'hand');
+        await delay(150); // Chờ một chút để client đồng bộ việc cầm vật phẩm
+
         for (let pos of lockedDirt) {
+            if (isOrdering || isRepairing || bot.currentWindow) return;
+            
             const dirtBlock = bot.blockAt(pos);
             const spaceAbove = bot.blockAt(pos.offset(0, 1, 0));
+            
             if (spaceAbove && spaceAbove.name === 'air') {
+                // FIX: Kiểm tra nghiêm ngặt món đồ đang cầm trên tay, nếu không phải mầm cây thì không đặt bừa bãi
+                const heldItem = bot.heldItem;
+                if (!heldItem || heldItem.name !== 'spruce_sapling') {
+                    // Nếu tay không hoặc cầm sai đồ, tìm lại mầm cây để cầm lại
+                    let reCheckSapling = bot.inventory.items().find(i => i.name === 'spruce_sapling');
+                    if (reCheckSapling) {
+                        await bot.equip(reCheckSapling, 'hand');
+                        await delay(150);
+                    } else {
+                        break; // Thực sự hết mầm cây, thoát ra để logicTick kích hoạt mua đồ
+                    }
+                }
+
                 await bot.lookAt(spaceAbove.position.offset(0.5, 0, 0.5), true).catch(() => {});
-                bot.placeBlock(dirtBlock, new Vec3(0, 1, 0)).catch(() => {});
-                await delay(50); 
+                await bot.placeBlock(dirtBlock, new Vec3(0, 1, 0)).catch(() => {});
+                await delay(80); 
             }
         }
     }
 
     async function boneMealSaplings(boneMealItem) {
+        if (isOrdering || isRepairing || bot.currentWindow) return;
         await bot.equip(boneMealItem, 'hand');
+        await delay(100);
+        
         const targetSaplingPos = lockedDirt[0].offset(0, 1, 0);
         const saplingBlock = bot.blockAt(targetSaplingPos);
         
         if (saplingBlock && saplingBlock.name === 'spruce_sapling') {
             await bot.lookAt(saplingBlock.position.offset(0.5, 0.5, 0.5), true).catch(() => {});
             for (let i = 0; i < 4; i++) {
+                if (isOrdering || isRepairing || bot.currentWindow) return;
                 const currentBlock = bot.blockAt(targetSaplingPos);
                 if (!currentBlock || currentBlock.name !== 'spruce_sapling') break;
                 bot.activateBlock(currentBlock, new Vec3(0, 1, 0)).catch(() => {}); 
-                await delay(60);
+                await delay(70);
             }
         }
     }
 
     async function chopTree() {
+        if (isOrdering || isRepairing || bot.currentWindow) return;
         let axe = bot.inventory.items().find(i => i.name.includes('netherite_axe'));
-        if (axe) await bot.equip(axe, 'hand');
+        if (axe) {
+            await bot.equip(axe, 'hand');
+            await delay(100);
+        }
 
         while (true) {
+            if (isOrdering || isRepairing || bot.currentWindow) return;
             let logs = [];
             for (let pos of lockedDirt) {
                 for (let y = 1; y <= 30; y++) {
@@ -375,19 +410,19 @@ function initBot(botConfig) {
         try {
             const gui1 = await waitForWindow(12000);
             if (!gui1) { isOrdering = false; return; }
-            await delay(200); 
+            await delay(300); 
             const click1 = await clickItemByName(gui1, 'chest');
             if (!click1) { bot.closeWindow(gui1); isOrdering = false; return; }
 
             const gui2 = await waitForWindow(12000);
             if (!gui2) { bot.closeWindow(gui1); isOrdering = false; return; }
-            await delay(200); 
+            await delay(300); 
             const click2 = await clickItemByName(gui2, type === 'sapling' ? 'spruce_sapling' : 'bone_meal');
             if (!click2) { bot.closeWindow(gui2); isOrdering = false; return; }
 
             const gui3 = await waitForWindow(12000);
             if (!gui3) { bot.closeWindow(gui2); isOrdering = false; return; }
-            await delay(300); 
+            await delay(400); 
             
             await bot.lookAt(footPos, true).catch(() => {});
             await delay(200);
@@ -396,9 +431,9 @@ function initBot(botConfig) {
             await delay(500); 
             await bot.clickWindow(17, 0, 0);
             
-            await delay(1200); 
+            await delay(1500); 
             bot.closeWindow(gui3);
-            await delay(2000); 
+            await delay(2500); // Chờ thêm một chút để hệ thống nhận diện đóng hoàn toàn các rương GUI
         } catch(e) {}
         isOrdering = false; 
     }
@@ -409,26 +444,28 @@ function initBot(botConfig) {
         try {
             const gui1 = await waitForWindow(12000);
             if (!gui1) { isRepairing = false; return; }
-            await delay(200); 
+            await delay(300); 
             const click1 = await clickItemByName(gui1, 'totem'); 
             if (!click1) { bot.closeWindow(gui1); isRepairing = false; return; }
 
             const gui2 = await waitForWindow(12000);
             if (!gui2) { bot.closeWindow(gui1); isRepairing = false; return; }
-            await delay(200); 
+            await delay(300); 
             const click2 = await clickItemByName(gui2, 'experience_bottle'); 
             if (!click2) { bot.closeWindow(gui2); isRepairing = false; return; }
 
             const gui3 = await waitForWindow(12000);
             if (gui3) {
-                await delay(400); await bot.clickWindow(17, 0, 0); await delay(300);
-                for (let i = 0; i < 3; i++) { await bot.clickWindow(23, 0, 0); await delay(200); }
+                await delay(500); await bot.clickWindow(17, 0, 0); await delay(300);
+                for (let i = 0; i < 3; i++) { await bot.clickWindow(23, 0, 0); await delay(250); }
                 bot.closeWindow(gui3);
             }
+            await delay(1000);
             let expBottle = bot.inventory.items().find(i => i.name === 'experience_bottle');
             while (expBottle !== undefined) {
                 await bot.equip(expBottle, 'off-hand');
-                bot.activateItem(true); await delay(60);
+                await delay(100);
+                bot.activateItem(true); await delay(80);
                 let checkAxe = bot.inventory.items().find(i => i.name.includes('netherite_axe'));
                 if (checkAxe && checkAxe.durabilityUsed === 0) break;
                 expBottle = bot.inventory.items().find(i => i.name === 'experience_bottle');
@@ -440,9 +477,6 @@ function initBot(botConfig) {
     createBot();
 }
 
-// ==========================================
-// TRÌNH QUẢN LÝ ĐA BOT
-// ==========================================
 async function startAllBots() {
     console.log(`[SYSTEM] Tìm thấy ${config.bots.length} tài khoản. Bắt đầu nạp...`);
     
